@@ -44,8 +44,8 @@ ALLOWED_USERS = [770984633, 2125513598]
 bot = telebot.TeleBot(BOT_TOKEN)
 user_cards = {}
 user_modes = {} 
-anchor_msgs = {}  # Храним ID невидимок-якорей
-content_msgs = {} # Храним ID текущих карточек/помощи
+anchor_msgs = {}  
+content_msgs = {} 
 
 def get_help_text():
     return (
@@ -53,7 +53,7 @@ def get_help_text():
         "• Получить слово: **/next** (или просто напиши `next`).\n"
         "• Увидеть ответ: жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
         "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу экрана.\n\n"
-        "💡 *Важно:* Если карточка зависла или что-то **«сломалось»** - удалите все сообщения в чате вручную, чтобы снова появилась кнопка **«Запустить бота»**.\n\n"
+        "💡 *Примечание:* Если в чате зависла старая карточка — просто свайпни и удали её вручную. Это бывает редко.\n\n"
         "🔹 Команда `/start` перезапускает бота."
     )
 
@@ -97,29 +97,28 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
-# --- ФУНКЦИИ ДЛЯ РАБОТЫ С ЯКОРЕМ И КОНТЕНТОМ ---
+# --- ЯКОРЬ (ИСПОЛЬЗУЕМ \u200b) ---
 def send_anchor(chat_id):
-    """Создает невидимое сообщение-якорь для нижней клавиатуры"""
-    # Удаляем старый якорь, если он был
     if chat_id in anchor_msgs:
         try: bot.delete_message(chat_id, anchor_msgs[chat_id])
         except: pass
     
-    # \u200b — это невидимый символ (Zero Width Space)
-    msg = bot.send_message(chat_id, "\u200b", reply_markup=get_main_keyboard())
-    anchor_msgs[chat_id] = msg.message_id
+    try:
+        # \u200b — невидимый символ (Zero Width Space)
+        msg = bot.send_message(chat_id, "\u200b", reply_markup=get_main_keyboard())
+        anchor_msgs[chat_id] = msg.message_id
+    except Exception as e:
+        print(f"Ошибка якоря: {e}")
 
+# --- АНИМАЦИЯ ---
 def send_content(chat_id, text, reply_markup=None, parse_mode=None):
-    """Отправляет новую карточку/текст, а затем удаляет старую (дает анимацию)"""
-    # 1. Отправляем новое
     msg = bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
     
-    # 2. Удаляем старый контент, если он есть
-    if chat_id in content_msgs:
+    # Удаляем старый контент, только если ID отличается (не трогаем якорь!)
+    if chat_id in content_msgs and content_msgs[chat_id] != msg.message_id:
         try: bot.delete_message(chat_id, content_msgs[chat_id])
         except: pass
         
-    # 3. Запоминаем новое
     content_msgs[chat_id] = msg.message_id
     return msg
 
@@ -142,7 +141,6 @@ def send_word(chat_id, user_id):
     
     send_content(chat_id, f"{label}: {front}", reply_markup=markup)
 
-# --- ОБРАБОТЧИКИ ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     if message.from_user.id not in ALLOWED_USERS:
@@ -150,7 +148,6 @@ def handle_start(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    # Сначала ставим невидимый якорь, чтобы клавиатура намертво привязалась к нему
     send_anchor(message.chat.id)
     
     text = (
@@ -164,7 +161,6 @@ def handle_start(message):
 def handle_help(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    
     send_content(message.chat.id, get_help_text(), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == '⚙️ Выбрать тему')
@@ -209,7 +205,6 @@ def handle_next_text(message):
 def handle_unknown(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    # Если бот не понимает команду, тоже используем анимацию
     send_content(message.chat.id, "Я понимаю только команду 'next' или /next. Листай карточки кнопками ниже! 👇")
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -247,7 +242,6 @@ def callback_query(call):
         bot.edit_message_text(f"{label}: {front}\n\n  {step1}\n  {step2}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "next":
-        # Вызываем анимированную смену карточки
         send_word(chat_id, call.from_user.id)
 
 print("Бот запущен...")
