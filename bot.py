@@ -39,29 +39,24 @@ threading.Thread(target=ping_self, daemon=True).start()
 # ---------------------------------------
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-
-ALLOWED_USERS = [
-    770984633, 
-]
+ALLOWED_USERS = [770984633]
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_cards = {}
 user_modes = {} 
 chat_history = {} 
 
-# --- ФУНКЦИЯ С ТЕКСТОМ ПОМОЩИ ---
 def get_help_text():
     return (
         "📖 **Как пользоваться ботом:**\n\n"
-        "1. Нажми **/next** (или напиши 'давай'), чтобы получить первую карточку.\n"
+        "1. Нажми **/next** (или просто напиши 'next'), чтобы получить карточку.\n"
         "2. На карточке нажми **«Показать ответ»**, чтобы увидеть иероглифы.\n"
         "3. Затем нажми **«Показать пиньинь»**, чтобы проверить произношение.\n"
         "4. Нажми **«Следующее слово»**, чтобы продолжить.\n\n"
         "🔹 Команда `/start` перезапускает бота.\n\n"
-        "В любой момент ты можешь нажать **«⚙️ Выбрать тему»** внизу, чтобы тренировать только определенный набор слов."
+        "В любой момент ты можешь нажать **«⚙️ Выбрать тему»** внизу."
     )
 
-# --- КЛАВИАТУРА ВНИЗУ ---
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn_menu = types.KeyboardButton('⚙️ Выбрать тему')
@@ -70,10 +65,8 @@ def get_main_keyboard():
     markup.add(btn_menu, btn_help, btn_clear)
     return markup
 
-# --- СЕТКА ТЕМ С ПАГИНАЦИЕЙ ---
 def get_topics_keyboard(page=0):
     markup = types.InlineKeyboardMarkup(row_width=2)
-    
     if page == 0:
         markup.row(types.InlineKeyboardButton("🌟 Все темы", callback_data="mode_all"))
     
@@ -98,9 +91,7 @@ def get_topics_keyboard(page=0):
     nav_buttons = []
     if page > 0:
         nav_buttons.append(types.InlineKeyboardButton("⬅️ Назад", callback_data=f"page_{page-1}"))
-    
     nav_buttons.append(types.InlineKeyboardButton(f"{page+1} / {total_pages}", callback_data="ignore"))
-    
     if page < total_pages - 1:
         nav_buttons.append(types.InlineKeyboardButton("Вперед ➡️", callback_data=f"page_{page+1}"))
         
@@ -114,7 +105,7 @@ def save_msg(chat_id, msg_id):
     if len(chat_history[chat_id]) > 50:
         chat_history[chat_id].pop(0)
 
-def send_word(chat_id, user_id):
+def send_word(chat_id, user_id, message_id=None):
     if user_id not in ALLOWED_USERS:
         return
 
@@ -131,6 +122,13 @@ def send_word(chat_id, user_id):
     btn_answer = types.InlineKeyboardButton("Показать ответ", callback_data="answer")
     markup.add(btn_answer)
     
+    if message_id:
+        try:
+            bot.edit_message_text(f"{label}: {front}", chat_id, message_id, reply_markup=markup)
+            return
+        except:
+            pass 
+            
     msg = bot.send_message(chat_id, f"{label}: {front}", reply_markup=markup)
     save_msg(chat_id, msg.message_id)
 
@@ -141,17 +139,13 @@ def handle_start(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    # 1. Отправляем короткое приветствие с кнопками
-    msg1 = bot.send_message(message.chat.id, "Привет! Я бот-тренажёр для китайского языка 🇨🇳", reply_markup=get_main_keyboard())
-    save_msg(message.chat.id, msg1.message_id)
-    
-    # 2. Отправляем инструкцию
-    msg2 = bot.send_message(message.chat.id, get_help_text(), parse_mode="Markdown")
-    save_msg(message.chat.id, msg2.message_id)
-    
-    # 3. Приглашающее сообщение
-    msg3 = bot.send_message(message.chat.id, "👇 Выбери тему, нажав на кнопку ниже, или напиши /next для случайного слова.")
-    save_msg(message.chat.id, msg3.message_id)
+    text = (
+        "Привет! Я бот-тренажёр для китайского языка 🇨🇳\n\n"
+        + get_help_text() + 
+        "\n\n👇 Выбери тему, нажав на кнопку ниже, или напиши 'next' для случайного слова."
+    )
+    msg = bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    save_msg(message.chat.id, msg.message_id)
 
 @bot.message_handler(func=lambda message: message.text == '🧹 Очистить')
 def handle_clear(message):
@@ -160,13 +154,11 @@ def handle_clear(message):
     
     if message.chat.id in chat_history:
         for msg_id in chat_history[message.chat.id]:
-            try:
-                bot.delete_message(message.chat.id, msg_id)
-            except:
-                pass
+            try: bot.delete_message(message.chat.id, msg_id)
+            except: pass
         chat_history[message.chat.id] = [] 
         
-    msg = bot.send_message(message.chat.id, "Чат очищен! Напиши /next, чтобы начать заново. 🧹", reply_markup=get_main_keyboard())
+    msg = bot.send_message(message.chat.id, "Чат очищен! Напиши 'next', чтобы начать заново. 🧹", reply_markup=get_main_keyboard())
     save_msg(message.chat.id, msg.message_id)
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
@@ -200,25 +192,30 @@ def callback_ignore(call):
 def callback_mode(call):
     mode = call.data.replace('mode_', '')
     user_modes[call.from_user.id] = mode
+    bot.answer_callback_query(call.id)
     
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except:
-        pass
-        
-    send_word(call.message.chat.id, call.from_user.id)
+    send_word(call.message.chat.id, call.from_user.id, message_id=call.message.message_id)
 
+# Обработка команды /next
 @bot.message_handler(commands=['next'])
 def handle_next_command(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     send_word(message.chat.id, message.from_user.id)
 
-@bot.message_handler(func=lambda message: True)
-def handle_text(message):
+# Обработка простого текста "next"
+@bot.message_handler(func=lambda message: message.text.lower() == 'next')
+def handle_next_text(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     send_word(message.chat.id, message.from_user.id)
+
+# Обработка любых других сообщений (если напишут что-то не то)
+@bot.message_handler(func=lambda message: True)
+def handle_unknown(message):
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
+    bot.send_message(message.chat.id, "Я понимаю только команду 'next' или /next. Листай карточки кнопками ниже! 👇", reply_markup=get_main_keyboard())
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -227,9 +224,10 @@ def callback_query(call):
         
     chat_id = call.message.chat.id
     if chat_id not in user_cards:
-        bot.answer_callback_query(call.id, "Нажми /next для нового слова")
+        bot.answer_callback_query(call.id, "Напиши /next для нового слова")
         return
     
+    bot.answer_callback_query(call.id)
     label, front, back = user_cards[chat_id]
     
     if call.data == "answer":
@@ -242,21 +240,20 @@ def callback_query(call):
             btn_next = types.InlineKeyboardButton("Следующее слово", callback_data="next")
             markup.add(btn_next)
         
-        bot.edit_message_text(f"{label}: {front}\n\n→ {step1}", chat_id, call.message.message_id, reply_markup=markup)
+        # Убрали стрелочку, добавили отступ в два пробела
+        bot.edit_message_text(f"{label}: {front}\n\n  {step1}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "pinyin":
         step2 = back.split(" — ")[1]
         markup = types.InlineKeyboardMarkup()
         btn_next = types.InlineKeyboardButton("Следующее слово", callback_data="next")
         markup.add(btn_next)
-        bot.edit_message_text(f"{label}: {front}\n\n→ {step2}", chat_id, call.message.message_id, reply_markup=markup)
+        
+        # Убрали стрелочку, добавили отступ в два пробела
+        bot.edit_message_text(f"{label}: {front}\n\n  {step2}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "next":
-        try:
-            bot.delete_message(chat_id, call.message.message_id)
-        except:
-            pass
-        send_word(chat_id, call.from_user.id)
+        send_word(chat_id, call.from_user.id, message_id=call.message.message_id)
 
 print("Бот запущен...")
 bot.infinity_polling()
