@@ -53,6 +53,7 @@ def get_help_text():
         "• Получить слово: **/next** (или просто напиши `next`).\n"
         "• Увидеть ответ: жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
         "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу экрана.\n\n"
+        "⚠️ **Внимание:** Не удаляйте сообщение с эмодзи 📖🇨🇳. Оно удерживает кнопки внизу экрана.\n\n"
         "💡 *Примечание:* Если в чате зависла старая карточка — просто свайпни и удали её вручную. Это бывает редко.\n\n"
         "🔹 Команда `/start` перезапускает бота."
     )
@@ -97,24 +98,19 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
-# --- ЯКОРЬ (ИСПОЛЬЗУЕМ \u200b) ---
+# --- ЯКОРЬ (КНИГА + ФЛАГ) ---
 def send_anchor(chat_id):
     if chat_id in anchor_msgs:
         try: bot.delete_message(chat_id, anchor_msgs[chat_id])
         except: pass
     
-    try:
-        # \u200b — невидимый символ (Zero Width Space)
-        msg = bot.send_message(chat_id, "\u200b", reply_markup=get_main_keyboard())
-        anchor_msgs[chat_id] = msg.message_id
-    except Exception as e:
-        print(f"Ошибка якоря: {e}")
+    msg = bot.send_message(chat_id, "📖🇨🇳", reply_markup=get_main_keyboard())
+    anchor_msgs[chat_id] = msg.message_id
 
 # --- АНИМАЦИЯ ---
 def send_content(chat_id, text, reply_markup=None, parse_mode=None):
     msg = bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
     
-    # Удаляем старый контент, только если ID отличается (не трогаем якорь!)
     if chat_id in content_msgs and content_msgs[chat_id] != msg.message_id:
         try: bot.delete_message(chat_id, content_msgs[chat_id])
         except: pass
