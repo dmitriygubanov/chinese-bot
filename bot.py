@@ -46,22 +46,23 @@ ALLOWED_USERS = [
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_cards = {}
-last_messages = {}
 user_modes = {} 
+# Словарь для хранения ID сообщений бота, чтобы их можно было удалить
+chat_history = {} 
 
 # --- КЛАВИАТУРА ВНИЗУ ---
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn_menu = types.KeyboardButton('⚙️ Выбрать тему')
     btn_help = types.KeyboardButton('ℹ️ Помощь')
-    markup.add(btn_menu, btn_help)
+    btn_clear = types.KeyboardButton('🧹 Очистить')
+    markup.add(btn_menu, btn_help, btn_clear)
     return markup
 
 # --- СЕТКА ТЕМ С ПАГИНАЦИЕЙ ---
 def get_topics_keyboard(page=0):
     markup = types.InlineKeyboardMarkup(row_width=2)
     
-    # Добавляем "Все темы" на нулевую страницу
     if page == 0:
         markup.row(types.InlineKeyboardButton("🌟 Все темы", callback_data="mode_all"))
     
@@ -95,18 +96,20 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
+# --- ФУНКЦИЯ СОХРАНЕНИЯ ID СООБЩЕНИЙ ---
+def save_msg(chat_id, msg_id):
+    if chat_id not in chat_history:
+        chat_history[chat_id] = []
+    chat_history[chat_id].append(msg_id)
+    # Держим в памяти только последние 50 сообщений
+    if len(chat_history[chat_id]) > 50:
+        chat_history[chat_id].pop(0)
+
 def send_word(chat_id, user_id):
     if user_id not in ALLOWED_USERS:
         return
 
-    if chat_id in last_messages:
-        try:
-            bot.delete_message(chat_id, last_messages[chat_id])
-        except:
-            pass
-
     mode = user_modes.get(user_id, "all")
-    
     if mode == "all" or mode not in TOPICS:
         key = random.choice(list(TOPICS.keys()))
     else:
@@ -120,7 +123,7 @@ def send_word(chat_id, user_id):
     markup.add(btn_answer)
     
     msg = bot.send_message(chat_id, f"{label}: {front}", reply_markup=markup)
-    last_messages[chat_id] = msg.message_id
+    save_msg(chat_id, msg.message_id)
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -131,12 +134,30 @@ def handle_start(message):
     
     text = (
         "Привет! Я бот-тренажёр для китайского языка 🇨🇳\n\n"
-        "Используй кнопки внизу, чтобы выбрать тему или посмотреть помощь."
+        "Используй кнопки внизу, чтобы листать слова или выбрать конкретную тему."
     )
-    bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
+    msg = bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
+    save_msg(message.chat.id, msg.message_id)
+    
     send_word(message.chat.id, message.from_user.id)
 
-@bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь')
+@bot.message_handler(func=lambda message: message.text == '🧹 Очистить')
+def handle_clear(message):
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
+    
+    if message.chat.id in chat_history:
+        for msg_id in chat_history[message.chat.id]:
+            try:
+                bot.delete_message(message.chat.id, msg_id)
+            except:
+                pass
+        chat_history[message.chat.id] = [] # Очищаем список
+        
+    # После очистки присылаем одну новую карточку, чтобы не было пустого экрана
+    send_word(message.chat.id, message.from_user.id)
+
+@bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
@@ -146,9 +167,12 @@ def handle_help(message):
         "1. На карточке нажми **«Показать ответ»**, чтобы увидеть иероглифы.\n"
         "2. Затем нажми **«Показать пиньинь»**, чтобы проверить произношение.\n"
         "3. Нажми **«Следующее слово»**, чтобы продолжить.\n\n"
+        "🔹 Команда `/next` выдает новое слово (если лень нажимать кнопку).\n"
+        "🔹 Команда `/start` перезапускает бота и сбрасывает настройки на стандартные.\n\n"
         "В любой момент ты можешь нажать **«⚙️ Выбрать тему»** внизу, чтобы тренировать только определенный набор слов."
     )
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+    msg = bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    save_msg(message.chat.id, msg.message_id)
 
 @bot.message_handler(func=lambda message: message.text == '⚙️ Выбрать тему')
 def handle_menu(message):
@@ -156,7 +180,8 @@ def handle_menu(message):
     except: pass
     
     text = "Выбери тему для тренировки:\n(листай страницы кнопками внизу)"
-    bot.send_message(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
+    msg = bot.send_message(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
+    save_msg(message.chat.id, msg.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('page_'))
 def callback_page(call):
@@ -180,12 +205,16 @@ def callback_mode(call):
         
     send_word(call.message.chat.id, call.from_user.id)
 
-@bot.message_handler(func=lambda message: True)
-def handle_text(message):
-    # Если пользователь пишет что-то вручную, тоже удаляем для чистоты
+@bot.message_handler(commands=['next'])
+def handle_next_command(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    
+    send_word(message.chat.id, message.from_user.id)
+
+@bot.message_handler(func=lambda message: True)
+def handle_text(message):
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
     send_word(message.chat.id, message.from_user.id)
 
 @bot.callback_query_handler(func=lambda call: True)
