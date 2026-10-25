@@ -52,32 +52,27 @@ user_modes = {}
 # --- КЛАВИАТУРА ВНИЗУ ---
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn_next = types.KeyboardButton('▶️ Следующее слово')
     btn_menu = types.KeyboardButton('⚙️ Выбрать тему')
-    markup.add(btn_next, btn_menu)
+    btn_help = types.KeyboardButton('ℹ️ Помощь')
+    markup.add(btn_menu, btn_help)
     return markup
 
 # --- СЕТКА ТЕМ С ПАГИНАЦИЕЙ ---
 def get_topics_keyboard(page=0):
     markup = types.InlineKeyboardMarkup(row_width=2)
     
-    # Добавляем кнопку "Все темы" на нулевую страницу
+    # Добавляем "Все темы" на нулевую страницу
     if page == 0:
-        markup.add(types.InlineKeyboardButton("🎲 Все темы", callback_data="mode_all"))
+        markup.row(types.InlineKeyboardButton("🌟 Все темы", callback_data="mode_all"))
     
-    # Получаем отсортированный список тем, чтобы они не прыгали
     sorted_keys = sorted(list(TOPICS.keys()))
-    
-    # Разбиваем на страницы по 8 тем
     items_per_page = 8
     total_pages = (len(sorted_keys) + items_per_page - 1) // items_per_page
     
-    # Вычисляем срез для текущей страницы
     start_idx = page * items_per_page
     end_idx = start_idx + items_per_page
     current_keys = sorted_keys[start_idx:end_idx]
     
-    # Генерируем кнопки тем
     buttons = []
     for key in current_keys:
         mod = TOPICS[key]
@@ -88,7 +83,6 @@ def get_topics_keyboard(page=0):
     if buttons:
         markup.add(*buttons)
     
-    # Добавляем кнопки навигации (назад/вперед)
     nav_buttons = []
     if page > 0:
         nav_buttons.append(types.InlineKeyboardButton("⬅️ Назад", callback_data=f"page_{page-1}"))
@@ -103,7 +97,6 @@ def get_topics_keyboard(page=0):
 
 def send_word(chat_id, user_id):
     if user_id not in ALLOWED_USERS:
-        bot.send_message(chat_id, "Извини, это приватный бот для учёбы.")
         return
 
     if chat_id in last_messages:
@@ -129,19 +122,39 @@ def send_word(chat_id, user_id):
     msg = bot.send_message(chat_id, f"{label}: {front}", reply_markup=markup)
     last_messages[chat_id] = msg.message_id
 
-@bot.message_handler(commands=['start', 'help'])
+@bot.message_handler(commands=['start'])
 def handle_start(message):
     if message.from_user.id not in ALLOWED_USERS:
         return
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
+    
     text = (
         "Привет! Я бот-тренажёр для китайского языка 🇨🇳\n\n"
-        "Используй кнопки внизу, чтобы листать слова или выбрать конкретную тему."
+        "Используй кнопки внизу, чтобы выбрать тему или посмотреть помощь."
     )
     bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
     send_word(message.chat.id, message.from_user.id)
 
+@bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь')
+def handle_help(message):
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
+    
+    text = (
+        "📖 **Как пользоваться ботом:**\n\n"
+        "1. На карточке нажми **«Показать ответ»**, чтобы увидеть иероглифы.\n"
+        "2. Затем нажми **«Показать пиньинь»**, чтобы проверить произношение.\n"
+        "3. Нажми **«Следующее слово»**, чтобы продолжить.\n\n"
+        "В любой момент ты можешь нажать **«⚙️ Выбрать тему»** внизу, чтобы тренировать только определенный набор слов."
+    )
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+
 @bot.message_handler(func=lambda message: message.text == '⚙️ Выбрать тему')
 def handle_menu(message):
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
+    
     text = "Выбери тему для тренировки:\n(листай страницы кнопками внизу)"
     bot.send_message(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
 
@@ -160,22 +173,19 @@ def callback_mode(call):
     mode = call.data.replace('mode_', '')
     user_modes[call.from_user.id] = mode
     
-    if mode == 'all':
-        text = "Выбраны ВСЕ темы 🎲"
-    else:
-        icon = getattr(TOPICS[mode], "icon", "")
-        name = getattr(TOPICS[mode], "name", mode)
-        text = f"Выбрана тема: {icon} {name}"
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except:
+        pass
         
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
     send_word(call.message.chat.id, call.from_user.id)
-
-@bot.message_handler(func=lambda message: message.text == '▶️ Следующее слово' or message.text == '/next')
-def handle_next_command(message):
-    send_word(message.chat.id, message.from_user.id)
 
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
+    # Если пользователь пишет что-то вручную, тоже удаляем для чистоты
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
+    
     send_word(message.chat.id, message.from_user.id)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -185,7 +195,7 @@ def callback_query(call):
         
     chat_id = call.message.chat.id
     if chat_id not in user_cards:
-        bot.answer_callback_query(call.id, "Нажми /next для нового слова")
+        bot.answer_callback_query(call.id, "Нажми /start для начала")
         return
     
     label, front, back = user_cards[chat_id]
