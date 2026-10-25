@@ -39,12 +39,14 @@ threading.Thread(target=ping_self, daemon=True).start()
 # ---------------------------------------
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
+
+# Твой ID и ID преподавателя
 ALLOWED_USERS = [770984633, 2125513598]
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_cards = {}
 user_modes = {} 
-chat_history = {} 
+active_msg_id = {} # Храним ID текущей карточки на экране
 
 def get_help_text():
     return (
@@ -52,7 +54,7 @@ def get_help_text():
         "1. Нажми **/next** (или просто напиши 'next'), чтобы получить карточку.\n"
         "2. На карточке нажми **«Показать ответ»**, чтобы увидеть иероглифы.\n"
         "3. Затем нажми **«Показать пиньинь»**, чтобы проверить произношение.\n"
-        "4. Нажми **«Следующее слово»**, чтобы продолжить.\n\n"
+        "4. Нажми **«Следующее слово»**, чтобы получить новую карточку.\n\n"
         "🔹 Команда `/start` перезапускает бота.\n\n"
         "В любой момент ты можешь нажать **«⚙️ Выбрать тему»** внизу."
     )
@@ -61,8 +63,7 @@ def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn_menu = types.KeyboardButton('⚙️ Выбрать тему')
     btn_help = types.KeyboardButton('ℹ️ Помощь')
-    btn_clear = types.KeyboardButton('🧹 Очистить')
-    markup.add(btn_menu, btn_help, btn_clear)
+    markup.add(btn_menu, btn_help)
     return markup
 
 def get_topics_keyboard(page=0):
@@ -98,16 +99,17 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
-def save_msg(chat_id, msg_id):
-    if chat_id not in chat_history:
-        chat_history[chat_id] = []
-    chat_history[chat_id].append(msg_id)
-    if len(chat_history[chat_id]) > 50:
-        chat_history[chat_id].pop(0)
-
-def send_word(chat_id, user_id, message_id=None):
+# --- ОТПРАВКА КАРТОЧКИ С АНИМАЦИЕЙ УДАЛЕНИЯ ---
+def send_word(chat_id, user_id):
     if user_id not in ALLOWED_USERS:
         return
+
+    # Удаляем предыдущую карточку, чтобы была анимация
+    if chat_id in active_msg_id:
+        try:
+            bot.delete_message(chat_id, active_msg_id[chat_id])
+        except:
+            pass
 
     mode = user_modes.get(user_id, "all")
     if mode == "all" or mode not in TOPICS:
@@ -122,15 +124,8 @@ def send_word(chat_id, user_id, message_id=None):
     btn_answer = types.InlineKeyboardButton("Показать ответ", callback_data="answer")
     markup.add(btn_answer)
     
-    if message_id:
-        try:
-            bot.edit_message_text(f"{label}: {front}", chat_id, message_id, reply_markup=markup)
-            return
-        except:
-            pass 
-            
     msg = bot.send_message(chat_id, f"{label}: {front}", reply_markup=markup)
-    save_msg(chat_id, msg.message_id)
+    active_msg_id[chat_id] = msg.message_id
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -139,44 +134,43 @@ def handle_start(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
+    # Если была карточка на экране - убираем её
+    if message.chat.id in active_msg_id:
+        try: bot.delete_message(message.chat.id, active_msg_id[message.chat.id])
+        except: pass
+        del active_msg_id[message.chat.id]
+    
     text = (
         "Привет! Я бот-тренажёр для китайского языка 🇨🇳\n\n"
         + get_help_text() + 
         "\n\n👇 Выбери тему, нажав на кнопку ниже, или напиши 'next' для случайного слова."
     )
-    msg = bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
-    save_msg(message.chat.id, msg.message_id)
-
-@bot.message_handler(func=lambda message: message.text == '🧹 Очистить')
-def handle_clear(message):
-    try: bot.delete_message(message.chat.id, message.message_id)
-    except: pass
-    
-    if message.chat.id in chat_history:
-        for msg_id in chat_history[message.chat.id]:
-            try: bot.delete_message(message.chat.id, msg_id)
-            except: pass
-        chat_history[message.chat.id] = [] 
-        
-    msg = bot.send_message(message.chat.id, "Чат очищен! Напиши 'next', чтобы начать заново. 🧹", reply_markup=get_main_keyboard())
-    save_msg(message.chat.id, msg.message_id)
+    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    msg = bot.send_message(message.chat.id, get_help_text(), parse_mode="Markdown", reply_markup=get_main_keyboard())
-    save_msg(message.chat.id, msg.message_id)
+    if message.chat.id in active_msg_id:
+        try: bot.delete_message(message.chat.id, active_msg_id[message.chat.id])
+        except: pass
+        del active_msg_id[message.chat.id]
+
+    bot.send_message(message.chat.id, get_help_text(), parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == '⚙️ Выбрать тему')
 def handle_menu(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
+    if message.chat.id in active_msg_id:
+        try: bot.delete_message(message.chat.id, active_msg_id[message.chat.id])
+        except: pass
+        del active_msg_id[message.chat.id]
+    
     text = "Выбери тему для тренировки:\n(листай страницы кнопками внизу)"
-    msg = bot.send_message(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
-    save_msg(message.chat.id, msg.message_id)
+    bot.send_message(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('page_'))
 def callback_page(call):
@@ -194,29 +188,30 @@ def callback_mode(call):
     user_modes[call.from_user.id] = mode
     bot.answer_callback_query(call.id)
     
-    send_word(call.message.chat.id, call.from_user.id, message_id=call.message.message_id)
+    # Удаляем сообщение с выбором темы и шлем первую карточку
+    try: bot.delete_message(call.message.chat.id, call.message.message_id)
+    except: pass
+    send_word(call.message.chat.id, call.from_user.id)
 
-# Обработка команды /next
 @bot.message_handler(commands=['next'])
 def handle_next_command(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     send_word(message.chat.id, message.from_user.id)
 
-# Обработка простого текста "next"
 @bot.message_handler(func=lambda message: message.text.lower() == 'next')
 def handle_next_text(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     send_word(message.chat.id, message.from_user.id)
 
-# Обработка любых других сообщений (если напишут что-то не то)
 @bot.message_handler(func=lambda message: True)
 def handle_unknown(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     bot.send_message(message.chat.id, "Я понимаю только команду 'next' или /next. Листай карточки кнопками ниже! 👇", reply_markup=get_main_keyboard())
 
+# --- ОБРАБОТКА ОТВЕТОВ (НАКОПЛЕНИЕ) ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     if call.data.startswith('mode_') or call.data.startswith('page_') or call.data == 'ignore':
@@ -230,30 +225,31 @@ def callback_query(call):
     bot.answer_callback_query(call.id)
     label, front, back = user_cards[chat_id]
     
+    step1 = back.split(" — ")[0] if " — " in back else back
+    step2 = back.split(" — ")[1] if " — " in back else ""
+
     if call.data == "answer":
-        step1 = back.split(" — ")[0] if " — " in back else back
         markup = types.InlineKeyboardMarkup()
-        if " — " in back:
+        if step2:
             btn_pinyin = types.InlineKeyboardButton("Показать пиньинь", callback_data="pinyin")
             markup.add(btn_pinyin)
         else:
             btn_next = types.InlineKeyboardButton("Следующее слово", callback_data="next")
             markup.add(btn_next)
         
-        # Убрали стрелочку, добавили отступ в два пробела
+        # Показываем только первый шаг
         bot.edit_message_text(f"{label}: {front}\n\n  {step1}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "pinyin":
-        step2 = back.split(" — ")[1]
         markup = types.InlineKeyboardMarkup()
         btn_next = types.InlineKeyboardButton("Следующее слово", callback_data="next")
         markup.add(btn_next)
         
-        # Убрали стрелочку, добавили отступ в два пробела
-        bot.edit_message_text(f"{label}: {front}\n\n  {step2}", chat_id, call.message.message_id, reply_markup=markup)
+        # Показываем и первый, и второй шаг (они копятся)
+        bot.edit_message_text(f"{label}: {front}\n\n  {step1}\n  {step2}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "next":
-        send_word(chat_id, call.from_user.id, message_id=call.message.message_id)
+        send_word(chat_id, call.from_user.id)
 
 print("Бот запущен...")
 bot.infinity_polling()
