@@ -44,15 +44,17 @@ ALLOWED_USERS = [770984633, 2125513598]
 bot = telebot.TeleBot(BOT_TOKEN)
 user_cards = {}
 user_modes = {} 
-last_bot_msg = {} 
+anchor_msgs = {}  # Храним ID невидимок-якорей
+content_msgs = {} # Храним ID текущих карточек/помощи
 
 def get_help_text():
     return (
         "📖 **Как пользоваться:**\n\n"
-        "• Получить слово: **/next** (или просто напиши `next`) или выбери тему по кнопке внизу экрана.\n"
+        "• Получить слово: **/next** (или просто напиши `next`).\n"
         "• Увидеть ответ: жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
-        "💡 *Примечание:* Если в чате зависла старая карточка — просто свайпни и удали её вручную. Это бывает редко.\n\n"
-        "🔹 Команда `/start` перезапускает бота.\nМожно также удалить ВСЕ сообщения в этом чате - снова появится кнопка **«Запустить Бота»**"
+        "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу экрана.\n\n"
+        "💡 *Важно:* Если карточка зависла или что-то **«сломалось»** - удалите все сообщения в чате вручную, чтобы снова появилась кнопка **«Запустить бота»**.\n\n"
+        "🔹 Команда `/start` перезапускает бота."
     )
 
 def get_main_keyboard():
@@ -95,8 +97,33 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
-# --- БЕЗОПАСНАЯ ОТПРАВКА/РЕДАКТИРОВАНИЕ ---
-def send_word(chat_id, user_id, message_id=None):
+# --- ФУНКЦИИ ДЛЯ РАБОТЫ С ЯКОРЕМ И КОНТЕНТОМ ---
+def send_anchor(chat_id):
+    """Создает невидимое сообщение-якорь для нижней клавиатуры"""
+    # Удаляем старый якорь, если он был
+    if chat_id in anchor_msgs:
+        try: bot.delete_message(chat_id, anchor_msgs[chat_id])
+        except: pass
+    
+    # \u200b — это невидимый символ (Zero Width Space)
+    msg = bot.send_message(chat_id, "\u200b", reply_markup=get_main_keyboard())
+    anchor_msgs[chat_id] = msg.message_id
+
+def send_content(chat_id, text, reply_markup=None, parse_mode=None):
+    """Отправляет новую карточку/текст, а затем удаляет старую (дает анимацию)"""
+    # 1. Отправляем новое
+    msg = bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    
+    # 2. Удаляем старый контент, если он есть
+    if chat_id in content_msgs:
+        try: bot.delete_message(chat_id, content_msgs[chat_id])
+        except: pass
+        
+    # 3. Запоминаем новое
+    content_msgs[chat_id] = msg.message_id
+    return msg
+
+def send_word(chat_id, user_id):
     if user_id not in ALLOWED_USERS:
         return
 
@@ -113,19 +140,9 @@ def send_word(chat_id, user_id, message_id=None):
     btn_answer = types.InlineKeyboardButton("Показать ответ", callback_data="answer")
     markup.add(btn_answer)
     
-    # Если есть ID сообщения, редактируем его (кнопки не пропадут!)
-    if message_id:
-        try:
-            bot.edit_message_text(f"{label}: {front}", chat_id, message_id, reply_markup=markup)
-            last_bot_msg[chat_id] = message_id
-            return
-        except Exception:
-            pass
-            
-    # Если редактировать нечего, отправляем новое
-    msg = bot.send_message(chat_id, f"{label}: {front}", reply_markup=markup)
-    last_bot_msg[chat_id] = msg.message_id
+    send_content(chat_id, f"{label}: {front}", reply_markup=markup)
 
+# --- ОБРАБОТЧИКИ ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     if message.from_user.id not in ALLOWED_USERS:
@@ -133,21 +150,22 @@ def handle_start(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
+    # Сначала ставим невидимый якорь, чтобы клавиатура намертво привязалась к нему
+    send_anchor(message.chat.id)
+    
     text = (
         "Привет! Я бот-тренажёр для китайского языка 🇨🇳\n\n"
         + get_help_text() + 
         "\n\n👇 Выбери тему, нажав на кнопку ниже, или напиши 'next' для случайного слова."
     )
-    msg = bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
-    last_bot_msg[message.chat.id] = msg.message_id
+    send_content(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    msg = bot.send_message(message.chat.id, get_help_text(), parse_mode="Markdown", reply_markup=get_main_keyboard())
-    last_bot_msg[message.chat.id] = msg.message_id
+    send_content(message.chat.id, get_help_text(), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == '⚙️ Выбрать тему')
 def handle_menu(message):
@@ -155,8 +173,7 @@ def handle_menu(message):
     except: pass
     
     text = "Выбери тему для тренировки:\n(листай страницы кнопками внизу)"
-    msg = bot.send_message(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
-    last_bot_msg[message.chat.id] = msg.message_id
+    send_content(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('page_'))
 def callback_page(call):
@@ -174,26 +191,26 @@ def callback_mode(call):
     user_modes[call.from_user.id] = mode
     bot.answer_callback_query(call.id)
     
-    # Меню превращается в первую карточку
-    send_word(call.message.chat.id, call.from_user.id, message_id=call.message.message_id)
+    send_word(call.message.chat.id, call.from_user.id)
 
 @bot.message_handler(commands=['next'])
 def handle_next_command(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    send_word(message.chat.id, message.from_user.id, message_id=last_bot_msg.get(message.chat.id))
+    send_word(message.chat.id, message.from_user.id)
 
 @bot.message_handler(func=lambda message: message.text.lower() == 'next')
 def handle_next_text(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    send_word(message.chat.id, message.from_user.id, message_id=last_bot_msg.get(message.chat.id))
+    send_word(message.chat.id, message.from_user.id)
 
 @bot.message_handler(func=lambda message: True)
 def handle_unknown(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    bot.send_message(message.chat.id, "Я понимаю только команду 'next' или /next. Листай карточки кнопками ниже! 👇", reply_markup=get_main_keyboard())
+    # Если бот не понимает команду, тоже используем анимацию
+    send_content(message.chat.id, "Я понимаю только команду 'next' или /next. Листай карточки кнопками ниже! 👇")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -230,7 +247,8 @@ def callback_query(call):
         bot.edit_message_text(f"{label}: {front}\n\n  {step1}\n  {step2}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "next":
-        send_word(chat_id, call.from_user.id, message_id=call.message.message_id)
+        # Вызываем анимированную смену карточки
+        send_word(chat_id, call.from_user.id)
 
 print("Бот запущен...")
 bot.infinity_polling()
