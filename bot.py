@@ -39,28 +39,12 @@ threading.Thread(target=ping_self, daemon=True).start()
 # ---------------------------------------
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-
-# Твой ID и ID преподавателя
 ALLOWED_USERS = [770984633, 2125513598]
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_cards = {}
 user_modes = {} 
-last_bot_msg = {} # Храним ID последнего сообщения бота для каждого чата
-
-# --- ФУНКЦИЯ ОЧИСТКИ И ОТПРАВКИ ---
-def send_clean(chat_id, text, reply_markup=None, parse_mode=None):
-    # Удаляем предыдущее сообщение бота, если оно было
-    if chat_id in last_bot_msg:
-        try:
-            bot.delete_message(chat_id, last_bot_msg[chat_id])
-        except:
-            pass
-    
-    # Отправляем новое и запоминаем его ID
-    msg = bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
-    last_bot_msg[chat_id] = msg.message_id
-    return msg
+last_bot_msg = {} 
 
 def get_help_text():
     return (
@@ -68,7 +52,7 @@ def get_help_text():
         "• Получить слово: **/next** (или просто напиши `next`).\n"
         "• Увидеть ответ: жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
         "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу экрана.\n\n"
-        "💡 *Примечание:* Если после обновления сервера в чате зависла старая карточка — просто свайпни и удали её вручную. Это бывает редко и только при перезапусках.\n\n"
+        "💡 *Примечание:* Если в чате зависла старая карточка — просто свайпни и удали её вручную. Это бывает редко.\n\n"
         "🔹 Команда `/start` перезапускает бота."
     )
 
@@ -112,6 +96,22 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
+# --- ФУНКЦИЯ С АНИМАЦИЕЙ (СНАЧАЛА НОВОЕ, ПОТОМ УДАЛЕНИЕ СТАРОГО) ---
+def send_animated(chat_id, text, reply_markup=None, parse_mode=None):
+    # 1. Сначала отправляем новое сообщение
+    msg = bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    
+    # 2. Затем пытаемся удалить предыдущее (с защитой от ошибок)
+    if chat_id in last_bot_msg:
+        try:
+            bot.delete_message(chat_id, last_bot_msg[chat_id])
+        except Exception:
+            pass # Если не получилось удалить (например, сообщение старше 48ч), просто игнорируем
+            
+    # 3. Запоминаем ID нового сообщения
+    last_bot_msg[chat_id] = msg.message_id
+    return msg
+
 def send_word(chat_id, user_id):
     if user_id not in ALLOWED_USERS:
         return
@@ -129,8 +129,8 @@ def send_word(chat_id, user_id):
     btn_answer = types.InlineKeyboardButton("Показать ответ", callback_data="answer")
     markup.add(btn_answer)
     
-    # Используем очистку перед отправкой (это дает анимацию)
-    send_clean(chat_id, f"{label}: {front}", reply_markup=markup)
+    # Отправляем новую карточку с анимацией
+    send_animated(chat_id, f"{label}: {front}", reply_markup=markup)
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -144,14 +144,15 @@ def handle_start(message):
         + get_help_text() + 
         "\n\n👇 Выбери тему, нажав на кнопку ниже, или напиши 'next' для случайного слова."
     )
-    send_clean(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    # Отправляем приветствие с анимацией (удалит старое, если оно было)
+    send_animated(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    send_clean(message.chat.id, get_help_text(), parse_mode="Markdown", reply_markup=get_main_keyboard())
+    send_animated(message.chat.id, get_help_text(), parse_mode="Markdown", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == '⚙️ Выбрать тему')
 def handle_menu(message):
@@ -159,7 +160,7 @@ def handle_menu(message):
     except: pass
     
     text = "Выбери тему для тренировки:\n(листай страницы кнопками внизу)"
-    send_clean(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
+    send_animated(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('page_'))
 def callback_page(call):
@@ -177,7 +178,7 @@ def callback_mode(call):
     user_modes[call.from_user.id] = mode
     bot.answer_callback_query(call.id)
     
-    # Меню выбора темы автоматически удалится внутри send_word благодаря send_clean
+    # Выбираем тему (меню удалится автоматически с анимацией внутри send_word)
     send_word(call.message.chat.id, call.from_user.id)
 
 @bot.message_handler(commands=['next'])
@@ -196,7 +197,7 @@ def handle_next_text(message):
 def handle_unknown(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    send_clean(message.chat.id, "Я понимаю только команду 'next' или /next. Листай карточки кнопками ниже! 👇", reply_markup=get_main_keyboard())
+    send_animated(message.chat.id, "Я понимаю только команду 'next' или /next. Листай карточки кнопками ниже! 👇", reply_markup=get_main_keyboard())
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -215,6 +216,7 @@ def callback_query(call):
     step2 = back.split(" — ")[1] if " — " in back else ""
 
     if call.data == "answer":
+        # Используем edit_message_text, чтобы иероглифы накапливались в одной карточке
         markup = types.InlineKeyboardMarkup()
         if step2:
             btn_pinyin = types.InlineKeyboardButton("Показать пиньинь", callback_data="pinyin")
@@ -226,6 +228,7 @@ def callback_query(call):
         bot.edit_message_text(f"{label}: {front}\n\n  {step1}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "pinyin":
+        # Добавляем пиньинь ниже иероглифов
         markup = types.InlineKeyboardMarkup()
         btn_next = types.InlineKeyboardButton("Следующее слово", callback_data="next")
         markup.add(btn_next)
@@ -233,6 +236,7 @@ def callback_query(call):
         bot.edit_message_text(f"{label}: {front}\n\n  {step1}\n  {step2}", chat_id, call.message.message_id, reply_markup=markup)
     
     elif call.data == "next":
+        # А вот тут включаем анимацию! Отправляем новую карточку и удаляем старую.
         send_word(chat_id, call.from_user.id)
 
 print("Бот запущен...")
