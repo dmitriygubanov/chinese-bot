@@ -47,8 +47,19 @@ ALLOWED_USERS = [
 bot = telebot.TeleBot(BOT_TOKEN)
 user_cards = {}
 user_modes = {} 
-# Словарь для хранения ID сообщений бота, чтобы их можно было удалить
 chat_history = {} 
+
+# --- ФУНКЦИЯ С ТЕКСТОМ ПОМОЩИ ---
+def get_help_text():
+    return (
+        "📖 **Как пользоваться ботом:**\n\n"
+        "1. Нажми **/next** (или напиши 'давай'), чтобы получить первую карточку.\n"
+        "2. На карточке нажми **«Показать ответ»**, чтобы увидеть иероглифы.\n"
+        "3. Затем нажми **«Показать пиньинь»**, чтобы проверить произношение.\n"
+        "4. Нажми **«Следующее слово»**, чтобы продолжить.\n\n"
+        "🔹 Команда `/start` перезапускает бота.\n\n"
+        "В любой момент ты можешь нажать **«⚙️ Выбрать тему»** внизу, чтобы тренировать только определенный набор слов."
+    )
 
 # --- КЛАВИАТУРА ВНИЗУ ---
 def get_main_keyboard():
@@ -96,12 +107,10 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
-# --- ФУНКЦИЯ СОХРАНЕНИЯ ID СООБЩЕНИЙ ---
 def save_msg(chat_id, msg_id):
     if chat_id not in chat_history:
         chat_history[chat_id] = []
     chat_history[chat_id].append(msg_id)
-    # Держим в памяти только последние 50 сообщений
     if len(chat_history[chat_id]) > 50:
         chat_history[chat_id].pop(0)
 
@@ -132,14 +141,17 @@ def handle_start(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    text = (
-        "Привет! Я бот-тренажёр для китайского языка 🇨🇳\n\n"
-        "Используй кнопки внизу, чтобы листать слова или выбрать конкретную тему."
-    )
-    msg = bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
-    save_msg(message.chat.id, msg.message_id)
+    # 1. Отправляем короткое приветствие с кнопками
+    msg1 = bot.send_message(message.chat.id, "Привет! Я бот-тренажёр для китайского языка 🇨🇳", reply_markup=get_main_keyboard())
+    save_msg(message.chat.id, msg1.message_id)
     
-    send_word(message.chat.id, message.from_user.id)
+    # 2. Отправляем инструкцию
+    msg2 = bot.send_message(message.chat.id, get_help_text(), parse_mode="Markdown")
+    save_msg(message.chat.id, msg2.message_id)
+    
+    # 3. Приглашающее сообщение
+    msg3 = bot.send_message(message.chat.id, "👇 Выбери тему, нажав на кнопку ниже, или напиши /next для случайного слова.")
+    save_msg(message.chat.id, msg3.message_id)
 
 @bot.message_handler(func=lambda message: message.text == '🧹 Очистить')
 def handle_clear(message):
@@ -152,26 +164,17 @@ def handle_clear(message):
                 bot.delete_message(message.chat.id, msg_id)
             except:
                 pass
-        chat_history[message.chat.id] = [] # Очищаем список
+        chat_history[message.chat.id] = [] 
         
-    # После очистки присылаем одну новую карточку, чтобы не было пустого экрана
-    send_word(message.chat.id, message.from_user.id)
+    msg = bot.send_message(message.chat.id, "Чат очищен! Напиши /next, чтобы начать заново. 🧹", reply_markup=get_main_keyboard())
+    save_msg(message.chat.id, msg.message_id)
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    text = (
-        "📖 **Как пользоваться ботом:**\n\n"
-        "1. На карточке нажми **«Показать ответ»**, чтобы увидеть иероглифы.\n"
-        "2. Затем нажми **«Показать пиньинь»**, чтобы проверить произношение.\n"
-        "3. Нажми **«Следующее слово»**, чтобы продолжить.\n\n"
-        "🔹 Команда `/next` выдает новое слово (если лень нажимать кнопку).\n"
-        "🔹 Команда `/start` перезапускает бота и сбрасывает настройки на стандартные.\n\n"
-        "В любой момент ты можешь нажать **«⚙️ Выбрать тему»** внизу, чтобы тренировать только определенный набор слов."
-    )
-    msg = bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    msg = bot.send_message(message.chat.id, get_help_text(), parse_mode="Markdown", reply_markup=get_main_keyboard())
     save_msg(message.chat.id, msg.message_id)
 
 @bot.message_handler(func=lambda message: message.text == '⚙️ Выбрать тему')
@@ -224,7 +227,7 @@ def callback_query(call):
         
     chat_id = call.message.chat.id
     if chat_id not in user_cards:
-        bot.answer_callback_query(call.id, "Нажми /start для начала")
+        bot.answer_callback_query(call.id, "Нажми /next для нового слова")
         return
     
     label, front, back = user_cards[chat_id]
