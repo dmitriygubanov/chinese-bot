@@ -42,6 +42,7 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ALLOWED_USERS = [
     770984633,   # (я)
     2125513598,  # Преподаватель Наталья Евгеньевна
+    857909461,  # Gleb Rybakov
 ]
 
 bot = telebot.TeleBot(BOT_TOKEN)
