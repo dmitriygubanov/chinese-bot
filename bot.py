@@ -23,7 +23,7 @@ def run_dummy_server():
 
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
-# --- САМОПИНГ (ЗАЩИТА ОТ СНА) ---
+# --- САМОПИНГ ---
 def ping_self():
     url = os.environ.get('RENDER_EXTERNAL_URL') 
     if not url:
@@ -36,17 +36,11 @@ def ping_self():
             pass
 
 threading.Thread(target=ping_self, daemon=True).start()
-# ---------------------------------------
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ALLOWED_USERS = [
-    770984633,   # (я)
-    2125513598,  # Преподаватель Наталья Евгеньевна
-    1110857564,  # Саша
-    2064110307,  # Мария
-    309534939,   # Аня
-    1507795370,  # Юлиана
-    835464960,   # Дмитрий
+    770984633,   # Дмитрий
+    2125513598,  # Преподаватель
 ]
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -54,14 +48,17 @@ user_cards = {}
 user_modes = {} 
 anchor_msgs = {}  
 content_msgs = {} 
+last_card_drawn = {} # Храним последнюю выданную карточку для защиты от повторов
 
 def get_help_text():
     return (
         "📖 **Как пользоваться:**\n\n"
-        "• Выбери тему по кнопке ⚙️ внизу экрана.\n"
-        "• Жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
+        "• Получить слово: **/next** (или просто напиши `next`).\n"
+        "• Увидеть ответ: жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
+        "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу экрана.\n\n"
         "⚠️ **Внимание:** Не удаляйте сообщение с эмодзи 📖🇨🇳. Оно удерживает кнопки внизу экрана.\n\n"
-        "🔹 Команда `/start` перезапускает бота. Либо удалите все сообщения вручную - появится кнопка **«Запустить бота»**"
+        "💡 *Примечание:* Если в чате зависла старая карточка — просто свайпни и удали её вручную. Это бывает редко.\n\n"
+        "🔹 Команда `/start` перезапускает бота."
     )
 
 def get_main_keyboard():
@@ -74,7 +71,8 @@ def get_main_keyboard():
 def get_topics_keyboard(page=0):
     markup = types.InlineKeyboardMarkup(row_width=2)
     if page == 0:
-        markup.row(types.InlineKeyboardButton("🌟 Все темы", callback_data="mode_all"))
+        # Поменяли название кнопки на "Случайная карточка"
+        markup.row(types.InlineKeyboardButton("🎲 Случайная карточка", callback_data="mode_all"))
     
     sorted_keys = sorted(list(TOPICS.keys()))
     items_per_page = 8
@@ -104,38 +102,46 @@ def get_topics_keyboard(page=0):
     markup.row(*nav_buttons)
     return markup
 
-# --- ЯКОРЬ (КНИГА + ФЛАГ) ---
 def send_anchor(chat_id):
     if chat_id in anchor_msgs:
         try: bot.delete_message(chat_id, anchor_msgs[chat_id])
         except: pass
-    
     msg = bot.send_message(chat_id, "📖🇨🇳", reply_markup=get_main_keyboard())
     anchor_msgs[chat_id] = msg.message_id
 
-# --- АНИМАЦИЯ ---
 def send_content(chat_id, text, reply_markup=None, parse_mode=None):
     msg = bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
-    
     if chat_id in content_msgs and content_msgs[chat_id] != msg.message_id:
         try: bot.delete_message(chat_id, content_msgs[chat_id])
         except: pass
-        
     content_msgs[chat_id] = msg.message_id
     return msg
 
 def send_word(chat_id, user_id):
     if user_id not in ALLOWED_USERS:
         return
-
+    
     mode = user_modes.get(user_id, "all")
-    if mode == "all" or mode not in TOPICS:
-        key = random.choice(list(TOPICS.keys()))
-    else:
-        key = mode
+    
+    # Защита от повтора
+    attempts = 0
+    while attempts < 10:
+        if mode == "all" or mode not in TOPICS:
+            key = random.choice(list(TOPICS.keys()))
+        else:
+            key = mode
+            
+        label, front, back = draw(key)
+        card_data = (label, front, back)
+        
+        # Если это первая карточка, или она отличается от предыдущей - берем её
+        if chat_id not in last_card_drawn or last_card_drawn[chat_id] != card_data:
+            break
+        attempts += 1
 
-    label, front, back = draw(key)
-    user_cards[chat_id] = (label, front, back)
+    # Запоминаем новую карточку
+    last_card_drawn[chat_id] = card_data
+    user_cards[chat_id] = card_data
     
     markup = types.InlineKeyboardMarkup()
     btn_answer = types.InlineKeyboardButton("Показать ответ", callback_data="answer")
@@ -151,7 +157,6 @@ def handle_start(message):
     except: pass
     
     send_anchor(message.chat.id)
-    
     text = (
         "Привет! Я бот-тренажёр для китайского языка 🇨🇳\n\n"
         + get_help_text() + 
@@ -169,7 +174,6 @@ def handle_help(message):
 def handle_menu(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
-    
     text = "Выбери тему для тренировки:\n(листай страницы кнопками внизу)"
     send_content(message.chat.id, text, reply_markup=get_topics_keyboard(page=0))
 
@@ -188,7 +192,6 @@ def callback_mode(call):
     mode = call.data.replace('mode_', '')
     user_modes[call.from_user.id] = mode
     bot.answer_callback_query(call.id)
-    
     send_word(call.message.chat.id, call.from_user.id)
 
 @bot.message_handler(commands=['next'])
