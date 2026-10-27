@@ -13,7 +13,13 @@ entries = [
     {"hanzi": "商店", "pinyin": "shāngdiàn", "ru": "магазин"},
     {"hanzi": "城市", "pinyin": "chéngshì", "ru": "город"},
     {"hanzi": "公园", "pinyin": "gōngyuán", "ru": "парк"},
-    {"hanzi": "那里", "pinyin": "nàlǐ", "ru": "там"},
     {"hanzi": "食堂", "pinyin": "shítáng", "ru": "столовая"},
     {"hanzi": "餐厅", "pinyin": "cāntīng", "ru": "ресторан"},
+    # Новые места
+    {"hanzi": "医院", "pinyin": "yīyuàn", "ru": "больница"},
+    {"hanzi": "学校", "pinyin": "xuéxiào", "ru": "школа"},
+    {"hanzi": "火车站", "pinyin": "huǒchēzhàn", "ru": "железнодорожный вокзал"},
+    {"hanzi": "飞机场", "pinyin": "fēijīchǎng", "ru": "аэропорт"},
+    {"hanzi": "宾馆", "pinyin": "bīnguǎn", "ru": "гостиница, отель"},
+    {"hanzi": "邮局", "pinyin": "yóujú", "ru": "почта"},
 ]
