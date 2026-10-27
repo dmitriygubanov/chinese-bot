@@ -9,9 +9,7 @@ entries = [
     {"hanzi": "天气", "pinyin": "tiānqì", "ru": "погода"},
     {"hanzi": "温暖", "pinyin": "wēnnuǎn", "ru": "теплый"},
     {"hanzi": "酷热", "pinyin": "kùrè", "ru": "сильная жара"},
-    {"hanzi": "饮料", "pinyin": "yǐnliào", "ru": "напиток"}, # (Оставим тут, хотя это скорее к еде)
-    # Новые слова про погоду
-    {"hanzi": "太阳", "pinyin": "tàiyáng", "ru": "солнце"},
+    {"hanzi": "太阳", "pinyin": "tàiyáng", "ru": "солнце/солнечно"},
     {"hanzi": "云", "pinyin": "yún", "ru": "облако"},
     {"hanzi": "下雨", "pinyin": "xià yǔ", "ru": "идет дождь"},
     {"hanzi": "下雪", "pinyin": "xià xuě", "ru": "идет снег"},
