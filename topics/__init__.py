@@ -19,7 +19,7 @@ def draw(key):
         front, back = mod.generate()
     else:
         e = random.choice(mod.entries)
-        front = e["hanzi"]
-        back = f"{e['ru']} — {e['pinyin']}"
+        front = e["ru"]                          #вопрос
+        back = f"{e['hanzi']} — {e['pinyin']}"   #ответы
 
     return label, front, back
