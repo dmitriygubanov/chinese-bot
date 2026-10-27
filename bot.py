@@ -48,7 +48,7 @@ user_cards = {}
 user_modes = {} 
 anchor_msgs = {}  
 content_msgs = {} 
-recent_cards = {} # Теперь храним последние 5 карточек
+recent_cards = {} 
 
 chat_locks = {}
 def get_lock(chat_id):
@@ -63,7 +63,7 @@ def get_help_text():
         "• Увидеть ответ: жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
         "• Пропустить слово: жми **«⏭ Пропустить»** на карточке.\n"
         "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу.\n"
-        "• Посмотреть все слова: кнопка **«📋 Список слов»** внизу.\n\n"
+        "• Посмотреть все слова темы: кнопка **«📋 Список слов»** внизу.\n\n"
         "⚠️ **Внимание:** Не удаляйте сообщение с эмодзи 📖🇨🇳. Оно удерживает кнопки внизу экрана.\n\n"
         "🔹 Команда `/clean` очищает память бота от зависших сообщений."
     )
@@ -137,7 +137,6 @@ def send_word(chat_id, user_id):
         recent_cards[chat_id] = []
         
     attempts = 0
-    # Пытаемся найти карточку, которой нет в списке последних 5
     while attempts < 20:
         if mode == "all" or mode not in TOPICS:
             key = random.choice(list(TOPICS.keys()))
@@ -151,9 +150,7 @@ def send_word(chat_id, user_id):
             break
         attempts += 1
 
-    # Добавляем в историю
     recent_cards[chat_id].append(card_data)
-    # Оставляем только 5 последних
     if len(recent_cards[chat_id]) > 5:
         recent_cards[chat_id].pop(0)
 
@@ -162,7 +159,6 @@ def send_word(chat_id, user_id):
     markup = types.InlineKeyboardMarkup()
     btn_answer = types.InlineKeyboardButton("Показать ответ", callback_data="answer")
     btn_skip = types.InlineKeyboardButton("⏭ Пропустить", callback_data="skip")
-    # Ставим кнопки в один ряд
     markup.add(btn_answer, btn_skip)
     
     send_content(chat_id, f"{label}: {front}", reply_markup=markup)
@@ -209,52 +205,23 @@ def handle_list(message):
     with get_lock(message.chat.id):
         mode = user_modes.get(message.from_user.id, "all")
         
-        text_parts = []
         if mode == "all":
-            text_parts.append("📋 **Список слов (Все темы):**\n")
-            for key in sorted(TOPICS.keys()):
-                mod = TOPICS[key]
-                icon = getattr(mod, "icon", "")
-                name = getattr(mod, "name", key)
-                text_parts.append(f"\n{icon} **{name}**")
-                
-                if hasattr(mod, "entries"):
-                    for e in mod.entries:
-                        text_parts.append(f"• {e['ru']} — {e['hanzi']} ({e['pinyin']})")
-                else:
-                    text_parts.append("• (слова генерируются автоматически)")
-        else:
-            mod = TOPICS[mode]
-            icon = getattr(mod, "icon", "")
-            name = getattr(mod, "name", mode)
-            text_parts.append(f"📋 **Список слов: {icon} {name}**\n")
-            if hasattr(mod, "entries"):
-                for e in mod.entries:
-                    text_parts.append(f"• {e['ru']} — {e['hanzi']} ({e['pinyin']})")
-            else:
-                text_parts.append("• (слова генерируются автоматически)")
-        
-        full_text = "\n".join(text_parts)
-        
-        if len(full_text) > 4000:
-            chunks = []
-            current_chunk = ""
-            for line in full_text.split('\n'):
-                if len(current_chunk) + len(line) + 1 > 4000:
-                    chunks.append(current_chunk)
-                    current_chunk = line + "\n"
-                else:
-                    current_chunk += line + "\n"
-            if current_chunk:
-                chunks.append(current_chunk)
+            send_content(message.chat.id, "⚠️ Список всех слов слишком огромный!\n\nПожалуйста, сначала выбери конкретную тему через **«⚙️ Выбрать тему»**, а затем нажми «📋 Список слов» ещё раз.", parse_mode="Markdown")
+            return
             
-            for i, chunk in enumerate(chunks):
-                if i == 0:
-                    send_content(message.chat.id, chunk, parse_mode="Markdown")
-                else:
-                    bot.send_message(message.chat.id, chunk, parse_mode="Markdown")
+        mod = TOPICS[mode]
+        icon = getattr(mod, "icon", "")
+        name = getattr(mod, "name", mode)
+        text_parts = [f"📋 **Список слов: {icon} {name}**\n"]
+        
+        if hasattr(mod, "entries"):
+            for e in mod.entries:
+                text_parts.append(f"• {e['ru']} — {e['hanzi']} ({e['pinyin']})")
         else:
-            send_content(message.chat.id, full_text, parse_mode="Markdown")
+            text_parts.append("• (слова генерируются автоматически)")
+            
+        full_text = "\n".join(text_parts)
+        send_content(message.chat.id, full_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
@@ -330,7 +297,6 @@ def callback_query(call):
     step2 = back.split(" — ")[1] if " — " in back else ""
 
     with get_lock(chat_id):
-        # --- ОБРАБОТКА КНОПКИ ПРОПУСТИТЬ ---
         if call.data == "skip":
             send_word(chat_id, call.from_user.id)
             return
