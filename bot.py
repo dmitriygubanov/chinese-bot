@@ -221,7 +221,13 @@ def handle_list(message):
             text_parts.append("• (слова генерируются автоматически)")
             
         full_text = "\n".join(text_parts)
-        send_content(message.chat.id, full_text, parse_mode="Markdown")
+        
+        # --- ДОБАВЛЯЕМ КНОПКУ ПРОДОЛЖИТЬ ---
+        markup = types.InlineKeyboardMarkup()
+        btn_continue = types.InlineKeyboardButton("▶️ Продолжить тренировку", callback_data=f"next_in_{mode}")
+        markup.add(btn_continue)
+        
+        send_content(message.chat.id, full_text, reply_markup=markup, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
@@ -259,6 +265,17 @@ def callback_mode(call):
     with get_lock(call.message.chat.id):
         send_word(call.message.chat.id, call.from_user.id)
 
+# --- ОБРАБОТЧИК КНОПКИ "ПРОДОЛЖИТЬ" ИЗ СПИСКА ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith('next_in_'))
+def callback_next_in(call):
+    mode = call.data.replace('next_in_', '')
+    user_modes[call.from_user.id] = mode
+    bot.answer_callback_query(call.id)
+    
+    with get_lock(call.message.chat.id):
+        # Функция send_word удалит список (так как его ID в content_msgs) и выдаст новую карточку
+        send_word(call.message.chat.id, call.from_user.id)
+
 @bot.message_handler(commands=['next'])
 def handle_next_command(message):
     try: bot.delete_message(message.chat.id, message.message_id)
@@ -282,7 +299,7 @@ def handle_unknown(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    if call.data.startswith('mode_') or call.data.startswith('page_') or call.data == 'ignore':
+    if call.data.startswith('mode_') or call.data.startswith('page_') or call.data == 'ignore' or call.data.startswith('next_in_'):
         return
         
     chat_id = call.message.chat.id
