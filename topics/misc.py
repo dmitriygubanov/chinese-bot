@@ -24,7 +24,7 @@ entries = [
     {"hanzi": "听说", "pinyin": "tīngshuō", "ru": "слышно, что..."},
     {"hanzi": "出发", "pinyin": "chūfā", "ru": "отправляться в путь"},
     {"hanzi": "找", "pinyin": "zhǎo", "ru": "искать"},
-    {"hanzi": "非常", "pinyin": "fēicháng", "ru": "очень"},
+    {"hanzi": "非常", "pinyin": "fēicháng", "ru": "чрезвычайно"},
     {"hanzi": "刮", "pinyin": "guā", "ru": "дуть"},
     {"hanzi": "刮风", "pinyin": "guā fēng", "ru": "дует ветер"},
 
