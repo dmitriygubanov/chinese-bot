@@ -48,9 +48,8 @@ user_cards = {}
 user_modes = {} 
 anchor_msgs = {}  
 content_msgs = {} 
-last_card_drawn = {} 
+recent_cards = {} # Теперь храним последние 5 карточек
 
-# --- СИСТЕМА ЗАМКОВ (ЗАЩИТА ОТ ГОНОК) ---
 chat_locks = {}
 def get_lock(chat_id):
     if chat_id not in chat_locks:
@@ -62,17 +61,19 @@ def get_help_text():
         "📖 **Как пользоваться:**\n\n"
         "• Получить слово: **/next** (или просто напиши `next`).\n"
         "• Увидеть ответ: жми кнопки **«Показать ответ»** и **«Показать пиньинь»** прямо на карточке.\n"
-        "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу экрана.\n\n"
+        "• Пропустить слово: жми **«⏭ Пропустить»** на карточке.\n"
+        "• Сменить тему: кнопка **«⚙️ Выбрать тему»** внизу.\n"
+        "• Посмотреть все слова: кнопка **«📋 Список слов»** внизу.\n\n"
         "⚠️ **Внимание:** Не удаляйте сообщение с эмодзи 📖🇨🇳. Оно удерживает кнопки внизу экрана.\n\n"
-        "💡 *Примечание:* Если в чате зависла старая карточка — просто свайпни и удали её вручную. Или напиши `/clean`.\n\n"
-        "🔹 Команда `/start` перезапускает бота."
+        "🔹 Команда `/clean` очищает память бота от зависших сообщений."
     )
 
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn_menu = types.KeyboardButton('⚙️ Выбрать тему')
+    btn_list = types.KeyboardButton('📋 Список слов')
     btn_help = types.KeyboardButton('ℹ️ Помощь')
-    markup.add(btn_menu, btn_help)
+    markup.add(btn_menu, btn_list, btn_help)
     return markup
 
 def get_topics_keyboard(page=0):
@@ -132,8 +133,12 @@ def send_word(chat_id, user_id):
     
     mode = user_modes.get(user_id, "all")
     
+    if chat_id not in recent_cards:
+        recent_cards[chat_id] = []
+        
     attempts = 0
-    while attempts < 10:
+    # Пытаемся найти карточку, которой нет в списке последних 5
+    while attempts < 20:
         if mode == "all" or mode not in TOPICS:
             key = random.choice(list(TOPICS.keys()))
         else:
@@ -142,16 +147,23 @@ def send_word(chat_id, user_id):
         label, front, back = draw(key)
         card_data = (label, front, back)
         
-        if chat_id not in last_card_drawn or last_card_drawn[chat_id] != card_data:
+        if card_data not in recent_cards[chat_id]:
             break
         attempts += 1
 
-    last_card_drawn[chat_id] = card_data
+    # Добавляем в историю
+    recent_cards[chat_id].append(card_data)
+    # Оставляем только 5 последних
+    if len(recent_cards[chat_id]) > 5:
+        recent_cards[chat_id].pop(0)
+
     user_cards[chat_id] = card_data
     
     markup = types.InlineKeyboardMarkup()
     btn_answer = types.InlineKeyboardButton("Показать ответ", callback_data="answer")
-    markup.add(btn_answer)
+    btn_skip = types.InlineKeyboardButton("⏭ Пропустить", callback_data="skip")
+    # Ставим кнопки в один ряд
+    markup.add(btn_answer, btn_skip)
     
     send_content(chat_id, f"{label}: {front}", reply_markup=markup)
 
@@ -162,7 +174,6 @@ def handle_start(message):
     try: bot.delete_message(message.chat.id, message.message_id)
     except: pass
     
-    # Блокируем чат, чтобы клики не пролетали мимо
     with get_lock(message.chat.id):
         send_anchor(message.chat.id)
         text = (
@@ -189,6 +200,61 @@ def handle_clean(message):
             
         bot.send_message(message.chat.id, "🧹 Память бота очищена. Отправляю новый якорь. Напиши /start.")
         send_anchor(message.chat.id)
+
+@bot.message_handler(func=lambda message: message.text == '📋 Список слов' or message.text == '/list')
+def handle_list(message):
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
+    
+    with get_lock(message.chat.id):
+        mode = user_modes.get(message.from_user.id, "all")
+        
+        text_parts = []
+        if mode == "all":
+            text_parts.append("📋 **Список слов (Все темы):**\n")
+            for key in sorted(TOPICS.keys()):
+                mod = TOPICS[key]
+                icon = getattr(mod, "icon", "")
+                name = getattr(mod, "name", key)
+                text_parts.append(f"\n{icon} **{name}**")
+                
+                if hasattr(mod, "entries"):
+                    for e in mod.entries:
+                        text_parts.append(f"• {e['ru']} — {e['hanzi']} ({e['pinyin']})")
+                else:
+                    text_parts.append("• (слова генерируются автоматически)")
+        else:
+            mod = TOPICS[mode]
+            icon = getattr(mod, "icon", "")
+            name = getattr(mod, "name", mode)
+            text_parts.append(f"📋 **Список слов: {icon} {name}**\n")
+            if hasattr(mod, "entries"):
+                for e in mod.entries:
+                    text_parts.append(f"• {e['ru']} — {e['hanzi']} ({e['pinyin']})")
+            else:
+                text_parts.append("• (слова генерируются автоматически)")
+        
+        full_text = "\n".join(text_parts)
+        
+        if len(full_text) > 4000:
+            chunks = []
+            current_chunk = ""
+            for line in full_text.split('\n'):
+                if len(current_chunk) + len(line) + 1 > 4000:
+                    chunks.append(current_chunk)
+                    current_chunk = line + "\n"
+                else:
+                    current_chunk += line + "\n"
+            if current_chunk:
+                chunks.append(current_chunk)
+            
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    send_content(message.chat.id, chunk, parse_mode="Markdown")
+                else:
+                    bot.send_message(message.chat.id, chunk, parse_mode="Markdown")
+        else:
+            send_content(message.chat.id, full_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь' or message.text == '/help')
 def handle_help(message):
@@ -223,7 +289,6 @@ def callback_mode(call):
     user_modes[call.from_user.id] = mode
     bot.answer_callback_query(call.id)
     
-    # Блокируем чат на время генерации карточки
     with get_lock(call.message.chat.id):
         send_word(call.message.chat.id, call.from_user.id)
 
@@ -264,8 +329,12 @@ def callback_query(call):
     step1 = back.split(" — ")[0] if " — " in back else back
     step2 = back.split(" — ")[1] if " — " in back else ""
 
-    # Блокируем, чтобы ответы и следующее слово не конфликтовали
     with get_lock(chat_id):
+        # --- ОБРАБОТКА КНОПКИ ПРОПУСТИТЬ ---
+        if call.data == "skip":
+            send_word(chat_id, call.from_user.id)
+            return
+
         if call.data == "answer":
             markup = types.InlineKeyboardMarkup()
             if step2:
