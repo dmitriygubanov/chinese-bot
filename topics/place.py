@@ -9,12 +9,10 @@ entries = [
     {"hanzi": "南边",  "pinyin": "nánbian",   "ru": "юг"},
     {"hanzi": "东边",  "pinyin": "dōngbian",  "ru": "восток"},
     {"hanzi": "西边",  "pinyin": "xībian",    "ru": "запад"},
-    # Сложные стороны света обычно и так понятны, но можно добавить с 边, 
-    # хотя чаще говорят просто 西北 (xīběi). Оставим базовую форму.
-    {"hanzi": "西北",  "pinyin": "xīběi",     "ru": "северо-запад"},
-    {"hanzi": "东北",  "pinyin": "dōngběi",   "ru": "северо-восток"},
-    {"hanzi": "西南",  "pinyin": "xīnán",     "ru": "юго-запад"},
-    {"hanzi": "东南",  "pinyin": "dōngnán",   "ru": "юго-восток"},
+    {"hanzi": "西北",  "pinyin": "xīběibian",     "ru": "северо-запад"},
+    {"hanzi": "东北",  "pinyin": "dōngběibian",   "ru": "северо-восток"},
+    {"hanzi": "西南",  "pinyin": "xīnánbian",     "ru": "юго-запад"},
+    {"hanzi": "东南",  "pinyin": "dōngnánbian",   "ru": "юго-восток"},
 
     # ─── Предлоги места и положения (строго 边 bian, кроме duimian) ───
     {"hanzi": "里边",  "pinyin": "lǐbian",    "ru": "внутри (в)"},
