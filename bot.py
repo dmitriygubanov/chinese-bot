@@ -39,8 +39,13 @@ threading.Thread(target=ping_self, daemon=True).start()
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ALLOWED_USERS = [
-    770984633,   # Дмитрий
-    2125513598,  # Преподаватель
+    770984633,   # я
+    2125513598,  # Наталья Евгеньевна
+    835464960, # Дима
+    1507795370, # Юлиана
+    309534939, # Аня
+    2064110307, # Мария
+    1110857564, Саша
 ]
 
 bot = telebot.TeleBot(BOT_TOKEN)
